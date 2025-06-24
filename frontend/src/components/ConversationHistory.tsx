@@ -6,6 +6,7 @@ import {
   List,
   ListItem,
   Divider,
+  Tooltip,
 } from '@mui/material';
 import { format } from 'date-fns';
 
@@ -40,7 +41,7 @@ interface ConversationHistoryProps {
 
 const ConversationHistory: React.FC<ConversationHistoryProps> = ({ conversations, documents }) => {
   const [openIds, setOpenIds] = useState<number[]>(
-    conversations.slice(0, 2).map((c) => c.id)
+    conversations.length > 0 ? [conversations[0].id] : []
   );
 
   const formatDate = (dateString: string) => {
@@ -54,22 +55,56 @@ const ConversationHistory: React.FC<ConversationHistoryProps> = ({ conversations
     return format(date, 'MMM d, h:mm a');
   };
 
-  const getTitle = (conversation: Conversation): string => {
+  const truncateFilename = (filename: string, maxLength: number = 25): string => {
+    if (filename.length <= maxLength) {
+      return filename;
+    }
+    
+    // Try to preserve file extension
+    const lastDotIndex = filename.lastIndexOf('.');
+    if (lastDotIndex > 0 && filename.length - lastDotIndex <= 5) {
+      const extension = filename.substring(lastDotIndex);
+      const nameWithoutExt = filename.substring(0, lastDotIndex);
+      const availableLength = maxLength - extension.length - 3; // 3 for "..."
+      
+      if (availableLength > 0) {
+        return nameWithoutExt.substring(0, availableLength) + '...' + extension;
+      }
+    }
+    
+    // Fallback: simple truncation
+    return filename.substring(0, maxLength - 3) + '...';
+  };
+
+  const getTitle = (conversation: Conversation): { title: string; fullTitle: string } => {
     const docIds = conversation.meta_data?.document_ids || [];
     const filenames = docIds
       .map((id) => documents.find((doc) => doc.id === id)?.filename)
       .filter(Boolean) as string[];
+    
     if (filenames.length === 0) {
-      return conversation.title;
+      return { title: conversation.title, fullTitle: conversation.title };
     }
-    let base = conversation.type === 'qa' ? 'Q&A about ' : 'Summary of ';
+    
+    const base = conversation.type === 'qa' ? 'Q&A about ' : 'Summary of ';
+    const fullTitle = base + filenames.join(', ');
+    
     if (filenames.length === 1) {
-      return base + filenames[0];
+      const truncated = truncateFilename(filenames[0]);
+      return {
+        title: base + truncated,
+        fullTitle: fullTitle
+      };
     }
-    if (filenames.length === 2) {
-      return base + filenames.join(', ');
-    }
-    return base + filenames.slice(0, 2).join(', ') + ', ...';
+    
+    // Multiple files: show first truncated filename + count
+    const firstFile = truncateFilename(filenames[0], 20); // Shorter for multiple files
+    const additionalCount = filenames.length - 1;
+    
+    return {
+      title: `${base}${firstFile} + ${additionalCount} other${additionalCount > 1 ? 's' : ''}`,
+      fullTitle: fullTitle
+    };
   };
 
   const handleToggle = (id: number) => {
@@ -92,6 +127,7 @@ const ConversationHistory: React.FC<ConversationHistoryProps> = ({ conversations
       <List>
         {conversations.map((conversation) => {
           const isOpen = openIds.includes(conversation.id);
+          const { title, fullTitle } = getTitle(conversation);
           return (
             <Paper
               key={conversation.id}
@@ -104,9 +140,20 @@ const ConversationHistory: React.FC<ConversationHistoryProps> = ({ conversations
               onClick={() => handleToggle(conversation.id)}
               elevation={isOpen ? 3 : 1}
             >
-              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'bold' }}>
-                {getTitle(conversation)}
-              </Typography>
+              <Tooltip title={fullTitle} arrow placement="top">
+                <Typography 
+                  variant="subtitle1" 
+                  sx={{ 
+                    mb: 1, 
+                    fontWeight: 'bold',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {title}
+                </Typography>
+              </Tooltip>
               <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
                 {formatDate(conversation.created_at)}
               </Typography>

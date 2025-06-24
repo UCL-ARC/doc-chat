@@ -28,6 +28,9 @@ const LLM_PROVIDERS = [
   { label: "Default - No API Key Required (gpt-4o-mini)", value: "openai/gpt-4o-mini" },
   { label: "GPT-4.1-mini (Add your own key)", value: "openai/gpt-4.1-mini" },
   { label: "Gemini-2.0-flash-lite (Add your own key)", value: "google/gemini-2.0-flash-lite" },
+  { label: "phi4-mini:3.8b", value: "ollama/phi4-mini:3.8b" },
+  { label: "llama3.2:1b", value: "ollama/llama3.2:1b" },
+  { label: "gemma3:1b", value: "ollama/gemma3:1b" },
 ];
 
 const DEFAULT_PROMPTS = {
@@ -42,7 +45,7 @@ const Settings: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>("openai/gpt-4o-mini");
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({
     openai: "",
-    google: "",
+    google: ""
   });
   const [prompts, setPrompts] = useState<{ summarize: string; qa: string }>(
     DEFAULT_PROMPTS,
@@ -101,7 +104,9 @@ const Settings: React.FC = () => {
     }
   };
 
-  const showApiKeyInput = selectedModel !== "openai/gpt-4o-mini";
+  const showApiKeyInput =
+    !selectedModel.startsWith("ollama/") &&
+    selectedModel !== "openai/gpt-4o-mini";
 
   return (
     <Container maxWidth="sm">

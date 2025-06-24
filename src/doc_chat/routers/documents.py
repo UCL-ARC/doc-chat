@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import services
 from ..auth.utils import verify_token
 from ..database import async_session_factory, get_db
+from ..llm_manager import ensure_model_is_available
 from ..models.conversation import Conversation, ConversationType, Message, MessageRole
 from ..models.document import Document, ParsedDocument
 from ..models.user import User, UserSettings
@@ -41,6 +42,7 @@ from ..services.pdf_parsers import (
     parse_pdf_with_llm_vision,
     parse_pdf_with_tesseract,
 )
+from ..config import settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -49,6 +51,33 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+
+
+async def _prepare_llm_call(model_name: str) -> dict[str, Any]:
+    """
+    Prepare parameters for an LLM call.
+    Checks if the model is an Ollama model, pulls it if it's not
+    available locally, and returns the necessary parameters for LiteLLM.
+    Args:
+        model_name: The name of the model.
+    Returns:
+        A dictionary of parameters for the LiteLLM call.
+    """
+    params: dict[str, Any] = {}
+    if model_name and model_name.startswith("ollama/"):
+        ollama_model_name = model_name.split("/", 1)[1]
+        try:
+            await ensure_model_is_available(ollama_model_name)
+            params["api_base"] = settings.OLLAMA_API_BASE_URL
+        except Exception as e:
+            # Log the error but don't fail the request - user might be using
+            # a model that's already available or Ollama might be down
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning(f"Failed to ensure Ollama model '{ollama_model_name}' is available: {e}")
+            # Still set the api_base in case the model is already available
+            params["api_base"] = settings.OLLAMA_API_BASE_URL
+    return params
 
 
 async def get_current_user(
@@ -576,6 +605,7 @@ async def summarize_documents(
         await db.refresh(user_settings)
     method = method or user_settings.pdf_parser
     model_name = model_name or user_settings.model_name or "gpt-4o"
+    llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("summarize", None)
     document_ids = request.document_ids
@@ -625,14 +655,8 @@ async def summarize_documents(
         raise HTTPException(
             status_code=404, detail="No parsed text available for selected documents."
         )
-    summary = (
-        services.summarize_text_with_llm(
-            full_text, model_name=model_name, api_key=api_key
-        )
-        if not prompt
-        else services.summarize_text_with_llm(
-            full_text, model_name=model_name, api_key=api_key
-        )
+    summary = services.summarize_text_with_llm(
+        full_text, model_name=model_name, api_key=api_key, **llm_params
     )
     return {"summary": summary}
 
@@ -659,6 +683,7 @@ async def qa_documents(
         await db.refresh(user_settings)
     method = method or user_settings.pdf_parser
     model_name = model_name or user_settings.model_name or "gpt-4o"
+    llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("qa", None)
     document_ids = request.document_ids
@@ -709,14 +734,8 @@ async def qa_documents(
         raise HTTPException(
             status_code=404, detail="No parsed text available for selected documents."
         )
-    answer = (
-        answer_question_with_llm(
-            full_text, question, model_name=model_name, api_key=api_key
-        )
-        if not prompt
-        else answer_question_with_llm(
-            full_text, question, model_name=model_name, api_key=api_key
-        )
+    answer = answer_question_with_llm(
+        full_text, question, model_name=model_name, api_key=api_key, **llm_params
     )
     return {"answer": answer}
 
@@ -863,6 +882,7 @@ async def summarize_documents_stream(
     user_settings = await get_or_create_user_settings(db, current_user.id)
     method = method or user_settings.pdf_parser
     model_name = model_name or user_settings.model_name or "gpt-4o"
+    llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("summarize", None)
     full_text = await get_concatenated_document_texts(db, current_user.id, request.document_ids, method)
@@ -880,7 +900,7 @@ async def summarize_documents_stream(
     async def stream_response():
         accumulated_text = ""
         async for chunk in summarize_text_with_llm_stream(
-            full_text, model_name=model_name, api_key=api_key
+            full_text, model_name=model_name, api_key=api_key, **llm_params
         ):
             if chunk:
                 accumulated_text += chunk
@@ -921,6 +941,7 @@ async def qa_documents_stream(
     user_settings = await get_or_create_user_settings(db, current_user.id)
     method = method or user_settings.pdf_parser
     model_name = model_name or user_settings.model_name or "gpt-4o"
+    llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("qa", None)
     full_text = await get_concatenated_document_texts(db, current_user.id, request.document_ids, method)
@@ -938,7 +959,7 @@ async def qa_documents_stream(
     async def stream_response():
         accumulated_text = ""
         async for chunk in answer_question_with_llm_stream(
-            full_text, request.question, model_name=model_name, api_key=api_key
+            full_text, request.question, model_name=model_name, api_key=api_key, **llm_params
         ):
             if chunk:
                 accumulated_text += chunk

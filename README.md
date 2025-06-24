@@ -1,6 +1,6 @@
 # Document Analysis Web Application
 
-A modern web application for document analysis, summarization, and FAQ generation. Users can upload PDFs and images, get summaries, ask questions, and generate FAQs from their documents.
+A web application for document analysis. Users can upload PDFs and images, get summaries and ask questions from their documents.
 
 ## Features
 
@@ -8,7 +8,6 @@ A modern web application for document analysis, summarization, and FAQ generatio
 - File upload support for PDFs and images
 - Document summarization
 - Question answering based on documents
-- FAQ generation
 - Secure password storage
 - PostgreSQL database integration
 
@@ -35,7 +34,7 @@ A modern web application for document analysis, summarization, and FAQ generatio
 
 ```bash
 git clone <repository-url>
-cd participatory-ai-for-workshops
+cd doc-chat
 ```
 
 2. Create and activate a virtual environment:
@@ -67,18 +66,54 @@ GOOGLE_API_KEY=your-google-api-key-here
 
 7. Run the development server:
 
-```bash
-uvicorn src.participatory_ai_for_workshops.main:app --reload
-```
+   The recommended way to run this application is with Docker Compose (see below).
 
-The API will be available at `http://localhost:8000`
+The API will be available at `http://localhost:8001`
+
+## Local Development with Ollama
+
+For local development, if you want to use local LLMs via Ollama, you'll need to install and run Ollama separately:
+
+### Installing Ollama
+
+1. **macOS/Linux:**
+   ```bash
+   curl -fsSL https://ollama.ai/install.sh | sh
+   ```
+
+2. **Windows:**
+   Download from [https://ollama.ai/download](https://ollama.ai/download)
+
+### Running Ollama
+
+1. Start the Ollama service:
+   ```bash
+   ollama serve
+   ```
+   This will start Ollama on `http://localhost:11434` (the default port the application expects).
+
+2. Pull a model (optional - models are auto-downloaded when first used):
+   ```bash
+   ollama pull llama3.2:1b
+   # or
+   ollama pull gemma2:2b
+   ```
+
+### Configuration
+
+When running locally, the application will automatically connect to Ollama at `http://localhost:11434`. In Docker, it connects to `http://ollama:11434` within the container network.
+
+If you need to use a different Ollama URL, set the environment variable:
+```env
+OLLAMA_API_BASE_URL=http://your-ollama-host:11434
+```
 
 ## API Documentation
 
 Once the server is running, you can access:
 
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- Swagger UI: `http://localhost:8001/docs`
+- ReDoc: `http://localhost:8001/redoc`
 
 ## Development
 
@@ -125,16 +160,27 @@ This application can be run using Docker and docker-compose, which makes it easy
 
 ## Running the Application
 
-1. Build and start all services:
+### For Standard Users (including M-series Macs)
 
-   ```bash
-   docker-compose up --build
-   ```
+Build and start all services using the standard compose file:
+```bash
+docker-compose up --build
+```
 
-2. Access the application:
-   - Frontend: <http://localhost>
-   - Backend API: <http://localhost:8000>
-   - Database: localhost:5432 (if you need direct access)
+### For Users with NVIDIA GPUs
+
+To enable GPU acceleration for Ollama, include the `docker-compose.gpu.yml` override file. This will merge the base configuration with the GPU-specific settings.
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+
+## Accessing the Application
+
+Once the containers are running, you can access the different parts of the application:
+- **Frontend & Backend API:** [`http://localhost:8001`](http://localhost:8001)
+- **Database (if direct access is needed):** `localhost:5432`
+- **Ollama API (for local models):** [`http://localhost:11434`](http://localhost:11434)
 
 ## Stopping the Application
 
@@ -153,6 +199,7 @@ docker-compose down -v
 ## Development
 
 - The `uploads` directory is mounted as a volume, so uploaded files persist between container restarts
+- The `ollama_data` volume stores downloaded LLMs so they are not re-downloaded on every start.
 - Database data is persisted in a Docker volume named `postgres_data`
 - Environment variables can be configured in the `.env` file
 

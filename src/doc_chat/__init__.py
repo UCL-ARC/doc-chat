@@ -1,4 +1,4 @@
-"""participatory_ai_for_workshops package."""
+"""doc_chat package."""
 
 # from ._version import __version__
 

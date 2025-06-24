@@ -20,13 +20,13 @@ classifiers = [
 ]
 dependencies = [
 ]
-description = "This is an AI agent which hfacilitiates participation and decision-making in workshops"
+description = "A modern web application for document analysis.Users can upload PDFs and images, get summaries and ask questions from their documents."
 dynamic = [
     "version",
 ]
 keywords = [
 ]
-name = "participatory-ai-for-workshops"
+name = "doc-chat"
 optional-dependencies = {dev = [
     "build",
     "mypy",
@@ -47,12 +47,12 @@ optional-dependencies = {dev = [
 readme = "README.md"
 requires-python = ">=3.11"
 license.file = "LICENSE.md"
-urls.homepage = "https://github.com/sagaruprety/participatory-ai-for-workshops"
+urls.homepage = "https://github.com/sagaruprety/doc-chat"
 
 [tool.coverage]
 report = {sort = "cover"}
 run = {branch = true, parallel = true, source = [
-    "participatory-ai-for-workshops",
+    "doc_chat",
 ]}
 paths.source = [
     "src",
@@ -91,7 +91,7 @@ lint.select = [
     "ALL",
 ]
 lint.isort.known-first-party = [
-    "participatory_ai_for_workshops",
+    "doc_chat",
 ]
 lint.mccabe.max-complexity = 18
 lint.pep8-naming.classmethod-decorators = [
@@ -100,7 +100,7 @@ lint.pep8-naming.classmethod-decorators = [
 
 [tool.setuptools_scm]
 local_scheme = "no-local-version"
-write_to = "src/participatory_ai_for_workshops/_version.py"
+write_to = "src/doc_chat/_version.py"
 
 [tool.tomlsort]
 all = true

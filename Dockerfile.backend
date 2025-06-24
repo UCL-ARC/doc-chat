@@ -2,10 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for Tesseract
+# Install system dependencies for Tesseract and Node.js
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js (for frontend build)
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get update && apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY requirements.txt .
@@ -14,11 +20,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
+# Build the frontend and copy static files
+WORKDIR /app/frontend
+RUN npm install && npm run build
+WORKDIR /app
+RUN rm -rf src/doc_chat/static && mkdir -p src/doc_chat/static && cp -r frontend/build/* src/doc_chat/static/
+
 # Create uploads directory
 RUN mkdir -p uploads
 
 # Expose the port the app runs on
-EXPOSE 8000
+EXPOSE 8001
 
 # Command to run the application
-CMD ["uvicorn", "src.participatory_ai_for_workshops.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.doc_chat.main:app", "--host", "0.0.0.0", "--port", "8001"]

@@ -10,12 +10,12 @@ npm run build
 cd ..
 ls -l frontend/build
 
-rm -rf src/participatory_ai_for_workshops/static
-mkdir -p src/participatory_ai_for_workshops/static
-cp -r frontend/build/* src/participatory_ai_for_workshops/static/
+rm -rf src/doc_chat/static
+mkdir -p src/doc_chat/static
+cp -r frontend/build/* src/doc_chat/static/
 
 # 3. Start FastAPI (Uvicorn) on the port Azure expects
-PORT=${PORT:-8000}
+PORT=${PORT:-8001}
 
 # Free the port if already in use (Linux/macOS)
 if lsof -i :$PORT; then
@@ -23,4 +23,4 @@ if lsof -i :$PORT; then
   lsof -ti :$PORT | xargs kill -9
 fi
 
-uvicorn src.participatory_ai_for_workshops.main:app --host 0.0.0.0 --port $PORT
+uvicorn src.doc_chat.main:app --host 0.0.0.0 --port $PORT

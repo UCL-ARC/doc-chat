@@ -23,6 +23,7 @@ class Settings(BaseSettings):
         AZURE_API_KEY: API key for Azure.
         AZURE_API_DEPLOYMENT_NAME: Deployment name for Azure.
         AZURE_API_VERSION: Version of Azure API.
+        OLLAMA_API_BASE_URL: Base URL for Ollama API.
 
     """
 
@@ -43,6 +44,10 @@ class Settings(BaseSettings):
     AZURE_API_KEY: str | None = None
     AZURE_API_DEPLOYMENT_NAME: str | None = None
     AZURE_API_VERSION: str | None = None
+
+    # Ollama configuration - defaults to localhost for local development
+    # In Docker, this should be set to "http://ollama:11434" via environment variable
+    OLLAMA_API_BASE_URL: str = "http://localhost:11434"
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="allow"

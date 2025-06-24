@@ -122,7 +122,16 @@ async def get_user_settings(
     settings = result.scalar_one_or_none()
     if not settings:
         # Create default settings if not exist
-        settings = UserSettings(user_id=current_user.id)
+        settings = UserSettings(
+            user_id=current_user.id,
+            model_name="openai/gpt-4o-mini",
+            pdf_parser="tesseract",
+            api_keys={},
+            prompts={
+                "summarize": "Summarize the following text for efficacy and clarity.",
+                "qa": "Given the following text, answer the question as accurately as possible."
+            }
+        )
         db.add(settings)
         await db.commit()
         await db.refresh(settings)

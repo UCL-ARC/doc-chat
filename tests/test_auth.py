@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
-from src.participatory_ai_for_workshops.database import Base, get_db
-from src.participatory_ai_for_workshops.main import app
+from src.doc_chat.database import Base, get_db
+from src.doc_chat.main import app
 
 # Test database URL
 TEST_DATABASE_URL = "postgresql+asyncpg://test:test@localhost/test_db"
