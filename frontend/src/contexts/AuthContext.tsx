@@ -10,6 +10,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, fullName: string) => Promise<void>;
   logout: () => void;
@@ -32,15 +33,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      // Set default authorization header
-      axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      setIsAuthenticated(true);
-      // TODO: Fetch user data
-    }
+    const checkAuthStatus = async () => {
+      try {
+        // Check if authentication is disabled on the backend
+        const statusResponse = await axios.get(`${API_URL}/auth/status`);
+        if (statusResponse.data.auth_disabled) {
+          // Auth is disabled, automatically authenticate
+          setIsAuthenticated(true);
+          setIsLoading(false);
+          return;
+        }
+      } catch (error) {
+        console.error("Error checking auth status:", error);
+      }
+      
+      // Normal auth flow - check for existing token
+      const token = localStorage.getItem("token");
+      if (token) {
+        // Set default authorization header
+        axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+        setIsAuthenticated(true);
+        // TODO: Fetch user data
+      }
+      setIsLoading(false);
+    };
+    
+    checkAuthStatus();
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -92,6 +113,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       value={{
         user,
         isAuthenticated,
+        isLoading,
         login,
         signup,
         logout,

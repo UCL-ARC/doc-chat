@@ -21,19 +21,24 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-doc_chat}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-      OLLAMA_API_BASE_URL: http://ollama:11434
-    volumes:
-      - ./uploads:/app/uploads
     ports:
       - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/doc_chat
+      - OLLAMA_API_BASE_URL=http://ollama:11434
+      - RAG_ENABLED=true
+      - RAG_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - RAG_CHUNK_SIZE=512
+      - RAG_CHUNK_OVERLAP=50
+      - RAG_TOP_K=5
+      - FAISS_INDEX_PATH=/app/data/faiss_index
+      - DISABLE_AUTH=${DISABLE_AUTH:-false}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
     depends_on:
-      db:
-        condition: service_healthy
-
+      - db
+      - ollama
 
   ollama:
     image: ollama/ollama

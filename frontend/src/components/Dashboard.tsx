@@ -400,7 +400,7 @@ const Dashboard: React.FC = () => {
           }}
         >
           <Typography variant="h4" component="h1">
-            WorkshopGPT
+            DocChat
           </Typography>
           <Box>
             <IconButton

@@ -161,3 +161,9 @@ cython_debug/
 
 # package version
 _version.py
+
+# User uploads (do not commit)
+uploads/
+
+# macOS
+.DS_Store

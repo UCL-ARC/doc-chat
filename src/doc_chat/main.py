@@ -1,18 +1,48 @@
 """Main application module."""
+import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import os
 from fastapi.responses import FileResponse
 
 from .database import Base, engine
 from .routers import auth, conversations, documents
+from .services.rag_service import rag_service
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan events."""
+    # Startup
+    logger.info("Starting up application...")
+    
+    # Initialize RAG service
+    rag_initialized = await rag_service.initialize()
+    if rag_initialized:
+        logger.info("RAG service initialized successfully")
+    else:
+        logger.info("RAG service disabled or failed to initialize")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down application...")
+
 
 app = FastAPI(
-    title="Participatory AI for Workshops",
+    title="Document Chat",
     description="API for document analysis, summarization, and FAQ generation",
     version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS

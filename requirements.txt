@@ -29,4 +29,5 @@ bcrypt
 docling
 langchain_community
 marker-pdf
-
+faiss-cpu
+sentence-transformers

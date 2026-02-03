@@ -25,6 +25,17 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 
+@router.get("/status")
+async def get_auth_status() -> dict[str, bool]:
+    """
+    Get authentication status.
+    
+    Returns:
+        dict: Whether authentication is disabled.
+    """
+    return {"auth_disabled": settings.DISABLE_AUTH}
+
+
 @router.post("/signup", response_model=UserResponse)
 async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)) -> Any:
     """

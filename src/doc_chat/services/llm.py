@@ -90,6 +90,7 @@ async def answer_question_with_llm_stream(
     Raises:
         ValueError: If the provider is unknown.
     """
+    print(f"In Answering question with LLM: {model_name}, api_key: {api_key}")
     provider = _infer_provider_from_model(model_name)
     if api_key is None:
         api_key = _get_api_key(provider)

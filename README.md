@@ -57,6 +57,11 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost/dbname
 SECRET_KEY=your-secret-key-here
 OPENAI_API_KEY=your-openai-api-key-here
 GOOGLE_API_KEY=your-google-api-key-here
+
+# Optional: Disable authentication (for development/testing only)
+# When set to "true", all endpoints will be accessible without login
+# A default user will be automatically created and used for all requests
+DISABLE_AUTH=false
 ```
 
 5. Ensure your PostgreSQL database is running and accessible.
@@ -107,6 +112,20 @@ If you need to use a different Ollama URL, set the environment variable:
 ```env
 OLLAMA_API_BASE_URL=http://your-ollama-host:11434
 ```
+
+### Authentication Configuration
+
+By default, the application requires user authentication (signup/login) to access protected endpoints. For development or testing purposes, you can disable authentication:
+
+```env
+DISABLE_AUTH=true
+```
+
+**Important Notes:**
+- When `DISABLE_AUTH=true`, all API endpoints become accessible without authentication
+- A default user (`default@local`) is automatically created and used for all requests
+- This should **only** be used in development/testing environments, never in production
+- The frontend login/signup pages will still be visible, but API calls will work without tokens
 
 ## API Documentation
 
@@ -219,3 +238,72 @@ docker-compose down -v
 3. For permission issues with uploads:
    - Ensure the `uploads` directory exists and has correct permissions
    - Try: `mkdir -p uploads && chmod 777 uploads`
+
+## RAG (Retrieval-Augmented Generation)
+
+This application includes optional RAG functionality using FAISS for improved document Q&A. RAG enhances responses by finding the most relevant document chunks for each question, rather than using entire documents as context.
+
+### Benefits of RAG
+
+- **Better relevance**: Only the most relevant document sections are used as context
+- **Improved accuracy**: Reduces noise from irrelevant document content
+- **Faster responses**: Smaller context windows lead to faster LLM processing
+- **Better handling of large documents**: Can work with documents that exceed LLM context limits
+
+### Configuration
+
+RAG is disabled by default. To enable it, set the following environment variables:
+
+```bash
+# Enable RAG
+RAG_ENABLED=true
+
+# Embedding model (default: sentence-transformers/all-MiniLM-L6-v2)
+RAG_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+
+# Text chunking settings
+RAG_CHUNK_SIZE=512
+RAG_CHUNK_OVERLAP=50
+
+# Number of similar chunks to retrieve for each query
+RAG_TOP_K=5
+
+# Path to store FAISS index
+FAISS_INDEX_PATH=./data/faiss_index
+```
+
+### Docker Configuration
+
+RAG is pre-configured in `docker-compose.yml`. The service will automatically:
+
+1. Download the embedding model on first startup
+2. Create text chunks from uploaded documents
+3. Build and maintain a FAISS vector index
+4. Use semantic search for Q&A queries
+
+### Testing RAG
+
+Run the test script to verify RAG functionality:
+
+```bash
+python test_rag.py
+```
+
+### RAG Status Endpoint
+
+Check RAG service status via the API:
+
+```bash
+curl http://localhost:8001/documents/rag/status
+```
+
+Response includes:
+- Whether RAG is enabled
+- Initialization status
+- Number of indexed chunks
+- Number of unique documents
+- Embedding model in use
+
+### Disabling RAG
+
+To disable RAG, set `RAG_ENABLED=false` or remove the environment variable. The application will fall back to using complete document text for Q&A, which is the original behavior.

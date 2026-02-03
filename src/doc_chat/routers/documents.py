@@ -5,6 +5,7 @@ import json
 import os
 from typing import Any
 from uuid import uuid4
+import logging
 
 from fastapi import (
     APIRouter,
@@ -21,9 +22,10 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 from .. import services
-from ..auth.utils import verify_token
+from ..auth.utils import verify_token, get_password_hash
 from ..database import async_session_factory, get_db
 from ..llm_manager import ensure_model_is_available
 from ..models.conversation import Conversation, ConversationType, Message, MessageRole
@@ -42,6 +44,8 @@ from ..services.pdf_parsers import (
     parse_pdf_with_llm_vision,
     parse_pdf_with_tesseract,
 )
+from ..services.rag_service import rag_service
+from ..services.text_processing import chunk_text
 from ..config import settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -50,7 +54,10 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 async def _prepare_llm_call(model_name: str) -> dict[str, Any]:
@@ -72,31 +79,78 @@ async def _prepare_llm_call(model_name: str) -> dict[str, Any]:
         except Exception as e:
             # Log the error but don't fail the request - user might be using
             # a model that's already available or Ollama might be down
-            import logging
-            log = logging.getLogger(__name__)
-            log.warning(f"Failed to ensure Ollama model '{ollama_model_name}' is available: {e}")
+            logger.warning(f"Failed to ensure Ollama model '{ollama_model_name}' is available: {e}")
             # Still set the api_base in case the model is already available
             params["api_base"] = settings.OLLAMA_API_BASE_URL
     return params
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
+    token: Optional[str] = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
 ) -> User:
     """
     Get current authenticated user.
 
+    If DISABLE_AUTH is True, returns a default user without requiring authentication.
+    Otherwise, validates the JWT token and returns the authenticated user.
+
     Args:
-        token: JWT token from Authorization header.
+        token: JWT token from Authorization header (optional if auth is disabled).
         db: Database session.
 
     Returns:
         User: Current user.
 
     Raises:
-        HTTPException: If user not found or inactive.
+        HTTPException: If user not found or inactive (when auth is enabled).
 
     """
+    # If authentication is disabled, get or create a default user
+    if settings.DISABLE_AUTH:
+        default_email = "default@local"
+        result = await db.execute(select(User).where(User.email == default_email))
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            # Try to get any existing user first
+            any_user_result = await db.execute(select(User).limit(1))
+            any_user = any_user_result.scalar_one_or_none()
+            
+            if any_user:
+                # Use the first existing user
+                logger.info(f"Using existing user {any_user.email} for disabled authentication mode")
+                return any_user
+            
+            # If no users exist, try to create default user
+            # Use a simple password hash workaround if bcrypt has issues
+            try:
+                hashed_password = get_password_hash("default")
+            except Exception as e:
+                logger.warning(f"Failed to hash password, using placeholder: {e}")
+                # Use a placeholder hash that won't work for login but allows the user to exist
+                hashed_password = "$2b$12$placeholder.hash.for.default.user.disabled.auth"
+            
+            user = User(
+                email=default_email,
+                hashed_password=hashed_password,
+                full_name="Default User",
+                is_active=True,
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            logger.info("Created default user for disabled authentication mode")
+        
+        return user
+    
+    # Normal authentication flow
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     payload = verify_token(token)
     result = await db.execute(select(User).where(User.email == payload["sub"]))
     user = result.scalar_one_or_none()
@@ -126,14 +180,7 @@ def parse_pdf_backend(
     raise ValueError(f"Unknown parsing method: {method}")
 
 
-async def parse_document_background(
-    document_id: int,
-    user_id: int,
-    method: str,
-    file_path: str,
-    api_key: str,
-    model_name: str = None,
-) -> None:
+async def background_parse_task(document_id: int, user_id: int, file_path: str, method: str):
     """Background task to parse a document and update ParsedDocument row."""
     async with async_session_factory() as db:
         result = await db.execute(
@@ -146,36 +193,51 @@ async def parse_document_background(
         parsed_doc = result.scalar_one_or_none()
         if not parsed_doc:
             return
+
         parsed_doc.parsing_status = "in_progress"
         await db.commit()
+
         try:
             if file_path.lower().endswith(".pdf"):
-                parsed = parse_pdf_backend(
-                    file_path, method, model_name=model_name, api_key=api_key
-                )
-            # For images, keep existing logic
-            elif method == "tesseract":
-                parsed = [parse_image_with_tesseract(file_path)]
-            elif method == "llm":
-                parsed = [
-                    parse_image_with_llm_vision(
-                        file_path, model_name=model_name, api_key=api_key
-                    )
-                ]
-            elif method == "docling":
-                # Docling is for PDFs, fallback to tesseract for images
-                parsed = [parse_image_with_tesseract(file_path)]
+                parsed = parse_pdf_backend(file_path, method)
             else:
-                raise ValueError("Unknown parsing method")
-            print(f"[parse_document_background] Parsed {file_path}")
+                # For images, use tesseract
+                parsed = [parse_image_with_tesseract(file_path)]
+
+            if not parsed:
+                raise ValueError("No text extracted from document")
+
             parsed_text = "\n".join(parsed)
-            # print(f"[parse_document_background] Parsed text: {parsed_text}")
+
             parsed_doc.parsed_text = parsed_text
             parsed_doc.parsing_status = "done"
             parsed_doc.error_message = None
+            
+            # Add to RAG index if enabled
+            if rag_service._initialized:
+                try:
+                    # Chunk the text for RAG
+                    chunks = chunk_text(parsed_text)
+                    if chunks:
+                        # Add to RAG index with metadata
+                        metadata = {
+                            'filename': parsed_doc.document.filename,
+                            'method': method,
+                            'file_type': parsed_doc.document.file_type
+                        }
+                        await rag_service.add_document_chunks(
+                            document_id=document_id,
+                            text_chunks=chunks,
+                            metadata=metadata
+                        )
+                        logger.info(f"Added {len(chunks)} chunks to RAG index for document {document_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to add document to RAG index: {e}")
+                    # Don't fail the parsing if RAG fails
+            
         except Exception as e:
             parsed_doc.parsing_status = "error"
-            print(f"[parse_document_background] Error in parsing {file_path}: {e}")
+            logger.error(f"Error parsing document {document_id}: {e}")
             parsed_doc.error_message = str(e)
         await db.commit()
 
@@ -254,13 +316,11 @@ async def upload_document(
 
     # Trigger background parsing
     background_tasks.add_task(
-        parse_document_background,
+        background_parse_task,
         document.id,
         current_user.id,
-        method,
         document.file_path,
-        api_key,
-        user_settings.model_name if user_settings else None,
+        method,
     )
 
     return document
@@ -740,30 +800,54 @@ async def qa_documents(
     return {"answer": answer}
 
 
-@router.delete("/{document_id}", status_code=204)
+@router.delete("/{document_id}")
 async def delete_document(
     document_id: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
-    """Delete a document and its parsed cache."""
+):
+    """Delete a document and its associated data."""
+    # Get the document
     result = await db.execute(
         select(Document).where(
-            Document.id == document_id, Document.user_id == current_user.id
+            Document.id == document_id,
+            Document.user_id == current_user.id,
         )
     )
     document = result.scalar_one_or_none()
+
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    # Delete parsed cache
-    await db.execute(
-        ParsedDocument.__table__.delete().where(
-            ParsedDocument.document_id == document_id,
-            ParsedDocument.user_id == current_user.id,
+
+    try:
+        # Remove from RAG index if enabled
+        if rag_service._initialized:
+            await rag_service.remove_document(document_id)
+            logger.info(f"Removed document {document_id} from RAG index")
+
+        # Delete related ParsedDocument rows first (quick fix for FK constraint)
+        await db.execute(
+            ParsedDocument.__table__.delete().where(ParsedDocument.document_id == document_id)
         )
-    )
-    await db.delete(document)
-    await db.commit()
+        await db.commit()
+
+        # Delete the file
+        if os.path.exists(document.file_path):
+            os.remove(document.file_path)
+
+        # Delete from database (cascades to parsed_documents)
+        await db.delete(document)
+        await db.commit()
+
+        return {"message": "Document deleted successfully"}
+
+    except Exception as e:
+        logger.error(f"Error deleting document {document_id}: {e}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete document"
+        )
 
 
 async def get_or_create_conversation(
@@ -920,7 +1004,7 @@ async def summarize_documents_stream(
 
 
 @router.post("/llm/qa/stream")
-async def qa_documents_stream(
+async def llm_qa_stream(
     request: QARequest,
     conversation_id: int = Query(None, description="Optional conversation ID to continue"),
     method: str = Query(None, description="Parsing method: 'tesseract' or 'llm' (default: user setting)"),
@@ -929,7 +1013,7 @@ async def qa_documents_stream(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Stream an answer to a question about the selected documents using an LLM."""
+    """Stream an answer to a question about the selected documents using an LLM, with RAG context if enabled."""
     conversation = await get_or_create_conversation(
         db,
         current_user.id,
@@ -944,11 +1028,43 @@ async def qa_documents_stream(
     llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("qa", None)
-    full_text = await get_concatenated_document_texts(db, current_user.id, request.document_ids, method)
-    if not full_text:
-        raise HTTPException(
-            status_code=404, detail="No parsed text available for selected documents."
-        )
+
+    # Try RAG first if enabled
+    context_text = ""
+    if rag_service._initialized:
+        try:
+            similar_chunks = await rag_service.search_similar_chunks(
+                query=request.question,
+                document_ids=request.document_ids,
+                top_k=settings.RAG_TOP_K
+            )
+            if similar_chunks:
+                # Print the query and retrieved chunks for RAG inspection
+                print(f"RAG Query: {request.question}")
+                print("RAG Retrieved Chunks:")
+                for i, chunk in enumerate(similar_chunks, 1):
+                    print(f"  Chunk {i}: {chunk['text'][:200]}{'...' if len(chunk['text']) > 200 else ''}")
+                    print(f"    Metadata: {chunk['metadata']}")
+                context_parts = []
+                for chunk in similar_chunks:
+                    context_parts.append(f"[From {chunk['metadata'].get('filename', 'document')}]: {chunk['text']}")
+                context_text = "\n\n".join(context_parts)
+                logger.info(f"Using RAG context with {len(similar_chunks)} chunks for Q&A")
+            else:
+                logger.info("No relevant chunks found in RAG, falling back to full documents")
+        except Exception as e:
+            logger.warning(f"RAG search failed: {e}, falling back to full documents")
+
+    # Fallback to full document text if RAG not available or no relevant chunks
+    if not context_text:
+        full_text = await get_concatenated_document_texts(db, current_user.id, request.document_ids, method)
+        if not full_text:
+            raise HTTPException(
+                status_code=404, detail="No parsed text available for selected documents."
+            )
+        context_text = full_text
+
+    # Add user message to conversation
     await add_user_message_to_conversation(
         db,
         conversation.id,
@@ -956,10 +1072,11 @@ async def qa_documents_stream(
         request.question,
         {"document_ids": request.document_ids},
     )
+
     async def stream_response():
         accumulated_text = ""
         async for chunk in answer_question_with_llm_stream(
-            full_text, request.question, model_name=model_name, api_key=api_key, **llm_params
+            context_text, request.question, model_name=model_name, api_key=api_key, **llm_params
         ):
             if chunk:
                 accumulated_text += chunk
@@ -974,3 +1091,10 @@ async def qa_documents_stream(
             session.add(assistant_message)
             await session.commit()
     return StreamingResponse(stream_response(), media_type="text/event-stream")
+
+
+@router.get("/rag/status")
+async def get_rag_status(current_user: User = Depends(get_current_user)):
+    """Get RAG service status and statistics."""
+    stats = await rag_service.get_stats()
+    return stats
