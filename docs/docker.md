@@ -1,24 +1,28 @@
 # Running with Docker
 
-This application can be run using Docker and Docker Compose, which makes it easy to set up and run on any machine.
+Docker is an alternative to the [local setup in the main README](../README.md); use this guide for containerized deployment. For non-Docker setup (Python, Node, PostgreSQL on the host), see the [README](../README.md).
 
 ## Prerequisites
 
 - Docker
 - Docker Compose
 
+No need to install Python, Node, or PostgreSQL locally—they run in containers.
+
 ## Setup
 
-1. Copy the example environment file:
+1. Create a `.env` file in the root directory (same as local setup). Use the same core variables as in the README:
 
-   ```bash
-   cp .env.example .env
+   ```env
+   DATABASE_URL=postgresql+asyncpg://user:password@localhost/dbname
+   RAG_ENABLED=false
+   DISABLE_AUTH=true
    ```
 
-2. Edit `.env` and add your API keys:
+   When using Docker Compose's `db` service, `DATABASE_URL` is set automatically by the stack; you only need `.env` if you want to override (e.g. `DISABLE_AUTH`) or add optional API keys for cloud LLMs.
 
-   - `OPENAI_API_KEY`: Your OpenAI API key
-   - `GOOGLE_API_KEY`: Your Google API key (for Gemini)
+
+2. **Database:** PostgreSQL is used to store document metadata, parsed text, user settings, and conversation history. With Docker, the `db` service provides PostgreSQL and the app creates tables on first run; no manual database creation is needed unless you use an external database.
 
 ## Running the Application
 
@@ -40,11 +44,12 @@ docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
 
 ## Accessing the application
 
-Once the containers are running:
+Once the containers are running, the API will be available at `http://localhost:8001`.
 
 - **Frontend & Backend API:** [http://localhost:8001](http://localhost:8001)
+- **API documentation:** Swagger UI at [http://localhost:8001/docs](http://localhost:8001/docs), ReDoc at [http://localhost:8001/redoc](http://localhost:8001/redoc)
 - **Database (if direct access is needed):** `localhost:5432`
-- **Ollama API (for local models):** [http://localhost:11434](http://localhost:11434)
+- **Ollama API (for local models):** [http://localhost:11434](http://localhost:11434). When using Docker, the app connects to `http://ollama:11434` inside the container network; you access Ollama from the host at `http://localhost:11434`.
 
 ## Stopping the application
 
@@ -65,7 +70,7 @@ docker-compose down -v
 - The `uploads` directory is mounted as a volume, so uploaded files persist between container restarts.
 - The `ollama_data` volume stores downloaded LLMs so they are not re-downloaded on every start.
 - Database data is persisted in a Docker volume named `postgres_data`.
-- Environment variables can be configured in the `.env` file.
+- Environment variables use the same names as in the README (`DATABASE_URL`, `RAG_ENABLED`, `DISABLE_AUTH`); configure them in the `.env` file when you need to override compose defaults.
 
 ## Troubleshooting
 

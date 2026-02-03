@@ -13,11 +13,11 @@ A web application for Question Answering over local documents using local Large 
 
 - Python 3.9+
 - PostgreSQL
-- Node.js 16+ and npm (for frontend). Install from [nodejs.org](https://nodejs.org/) or via your package manager (e.g. `brew install node` on macOS).
-- uv (Python package manager). Install: `curl -LsSf https://astral.sh/uv/install.sh | sh` (see [uv docs](https://docs.astral.sh/uv/) for other options)
+- Node.js 16+ and npm (for frontend)
+- uv (Python package manager)
 - Ollama
 
-To run with Docker instead of local setup, see the [Docker guide](docs/docker.md).
+Install steps for all platforms (macOS, Linux, Windows) are in **Setup** below. To run with Docker instead of local setup, see the [Docker guide](docs/docker.md).
 
 ## Setup
 
@@ -63,14 +63,19 @@ RAG_ENABLED=false
 DISABLE_AUTH=true
 ```
 
-6. **Database:** Ensure PostgreSQL is installed and running, then create a database (and optionally a user/password) for the app. The app creates **tables** on first run; it does **not** create the database or user.
+6. **Database:** PostgreSQL is used to store document metadata, parsed text, user settings (e.g. selected model, prompts), and conversation history. Ensure PostgreSQL is installed and running, then create a database (and optionally a user/password) for the app. The app creates **tables** on first run; it does **not** create the database or user.
 
    **Install & start PostgreSQL**
    - **macOS (Homebrew):** `brew install postgresql@16` then `brew services start postgresql@16`
-   - **Linux:** Install the `postgresql` (and optionally `postgresql-client`) package for your distro and start the service
+   - **Linux:** Install the `postgresql` (e.g. `sudo apt install postgresql`) package for your distro and start the service
+   - **Windows:** Download the installer from [postgresql.org/download/windows](https://www.postgresql.org/download/windows/) and run it. During setup, set a password for the `postgres` superuser. The PostgreSQL service usually starts automatically; you can manage it in *Services* (e.g. `services.msc`) or via *pgAdmin*.
 
-   **Option A – Simple (OS user)**  
-   Create a database owned by your current OS user (good for local dev).
+   **Create a database and user**
+   - **macOS (Homebrew):** Usually your OS user already exists as a role. Run:
+     ```bash
+     createdb doc_chat
+     ```
+     In `.env` use: `DATABASE_URL=postgresql+asyncpg://YOUR_OS_USERNAME@localhost/doc_chat` (no password; replace `YOUR_OS_USERNAME` with your username).
    - **Linux:** The PostgreSQL role matching your OS user (e.g. `ubuntu`) often does not exist. Create it first, then the database:
      ```bash
      sudo -u postgres createuser -s $USER
@@ -82,40 +87,36 @@ DISABLE_AUTH=true
      ```
      In `.env` use your **actual username** (e.g. `ubuntu`). The `.env` file is not processed by the shell, so `$USER` will not expand—write the name explicitly:
      `DATABASE_URL=postgresql+asyncpg://ubuntu:dev@localhost/doc_chat`
-   - **macOS (Homebrew):** Usually your OS user already exists as a role. Run:
-     ```bash
-     createdb doc_chat
+   - **Windows:** Open *SQL Shell (psql)* or a terminal where `psql` is on PATH (e.g. `C:\Program Files\PostgreSQL\16\bin`). Connect as `postgres` (use the password you set during install), then create a dedicated user and database:
+     ```sql
+     CREATE USER doc_chat_user WITH PASSWORD 'your_password';
+     CREATE DATABASE doc_chat OWNER doc_chat_user;
      ```
-     In `.env` use: `DATABASE_URL=postgresql+asyncpg://YOUR_OS_USERNAME@localhost/doc_chat` (no password; replace `YOUR_OS_USERNAME` with your username).
+     In `.env` use: `DATABASE_URL=postgresql+asyncpg://doc_chat_user:your_password@localhost/doc_chat`
 
 7. **First run:** Start the app (see *Running the Application*). Database **tables** are created automatically on first startup; the database and user must already exist (step 6).
 
-## Local Development with Ollama
+## Local LLMs with Ollama
 
-For local development, if you want to use local LLMs via Ollama, you'll need to install and run Ollama separately:
+If you want to use local LLMs via Ollama, you'll need to install and run Ollama separately:
 
 ### Installing Ollama
 
-1. **macOS/Linux:**
-   ```bash
-   curl -fsSL https://ollama.ai/install.sh | sh
-   ```
-
-2. **Windows:**
-   Download from [https://ollama.ai/download](https://ollama.ai/download)
+- **macOS/Linux:** `curl -fsSL https://ollama.ai/install.sh | sh`
+- **Windows:** Download and run the installer from [ollama.ai/download](https://ollama.ai/download)
 
 ### Running Ollama
 
-1. Start the Ollama service:
-   ```bash
-   ollama serve
-   ```
-   This will start Ollama on `http://localhost:11434` (the default port the application expects).
+- **macOS/Linux:** In a terminal, run `ollama serve`. This starts Ollama on `http://localhost:11434` (the default port the application expects).
+- **Windows:** Ollama may start from the Start menu or system tray after install. To run from a terminal, open PowerShell or CMD and run `ollama serve`.
 
-2. Pull models (optional - models are auto-downloaded when first used):
-   ```bash
-   ollama pull gemma3:1b
-   ```
+### Pulling models (optional)
+
+Models are auto-downloaded when first used. To pull in advance, run in a terminal (PowerShell or CMD on Windows):
+
+```bash
+ollama pull gemma3:1b
+```
 
 ### Configuration
 
@@ -132,9 +133,8 @@ OLLAMA_API_BASE_URL=http://your-ollama-host:11434
 
 From the project root (with your virtual environment activated and `.env` configured):
 
-```bash
-./startup.sh
-```
+- **macOS/Linux:** `./startup.sh`
+- **Windows:** Use WSL (Windows Subsystem for Linux) and run `./startup.sh` there, or run the steps manually: `cd frontend`, `npm install`, `npm run build`, then from the repo root copy `frontend/build` into `src/doc_chat/static`, then `uvicorn src.doc_chat.main:app --host 0.0.0.0 --port 8001`.
 
 This builds the frontend, copies it into the backend static folder, and starts the API. Default port is 8001; set `PORT` to override.
 
