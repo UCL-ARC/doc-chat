@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.utils import create_access_token, get_password_hash, verify_password
 from ..config import settings
 from ..database import get_db
+from ..llm_manager import ensure_default_model, list_local_models
 from ..models.user import User, UserSettings
 from ..schemas.auth import (
     Token,
@@ -23,6 +24,29 @@ from .documents import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+
+
+@router.get("/ollama/models")
+async def get_ollama_models(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, list[str]]:
+    """
+    Return list of Ollama model names available on the server (with 'ollama/' prefix).
+    """
+    names = await list_local_models()
+    return {"models": [f"ollama/{n}" for n in names]}
+
+
+@router.get("/ollama/ensure-default")
+async def ensure_ollama_default(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str | bool]:
+    """
+    Ensure the default model (gemma3:1b) is available; pull if not.
+    Frontend can show 'Downloading default model (one time)...' while this request is in flight.
+    """
+    result = await ensure_default_model()
+    return {"status": "ready", "pulled": result["pulled"]}
 
 
 @router.get("/status")
@@ -135,7 +159,7 @@ async def get_user_settings(
         # Create default settings if not exist
         settings = UserSettings(
             user_id=current_user.id,
-            model_name="openai/gpt-4o-mini",
+            model_name="ollama/gemma3:1b",
             pdf_parser="tesseract",
             api_keys={},
             prompts={

@@ -1,12 +1,29 @@
-import os
+import logging
+from contextlib import suppress
 from collections.abc import AsyncIterator
 from typing import AsyncGenerator
+
 from litellm import completion
+import litellm
 
 from ..config import settings
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+# Disable LiteLLM cost calculation and reduce its logging (no repeated "cost calculation" lines)
+litellm.disable_end_user_cost_tracking = True
+# Prevent LiteLLM from fetching model_prices_and_context_window.json from GitHub
+litellm.model_cost_map_url = ""
+# Return empty cost map so no HTTP request is made for model prices/context window
+def _get_model_cost_map_no_fetch(*args: object, **kwargs: object) -> dict:
+    return {}
+
+litellm.get_model_cost_map = _get_model_cost_map_no_fetch
+with suppress(AttributeError):
+    litellm.litellm_core_utils.get_model_cost_map = _get_model_cost_map_no_fetch
+_litellm_log = logging.getLogger("LiteLLM")
+_litellm_log.setLevel(getattr(logging, settings.LITELLM_LOG_LEVEL.upper(), logging.ERROR))
 
 
 def _infer_provider_from_model(model_name: str) -> str:
@@ -90,7 +107,6 @@ async def answer_question_with_llm_stream(
     Raises:
         ValueError: If the provider is unknown.
     """
-    print(f"In Answering question with LLM: {model_name}, api_key: {api_key}")
     provider = _infer_provider_from_model(model_name)
     if api_key is None:
         api_key = _get_api_key(provider)

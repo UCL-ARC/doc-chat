@@ -35,6 +35,7 @@ class DocumentResponse(DocumentBase):
         faqs: Generated FAQs from the document.
         created_at: When the document was uploaded.
         updated_at: When the document was last updated.
+        parsing_status: Aggregate parsing status: not_started, pending, in_progress, done, error.
 
     """
 
@@ -45,6 +46,7 @@ class DocumentResponse(DocumentBase):
     faqs: str | None = None
     created_at: datetime
     updated_at: datetime
+    parsing_status: str = "not_started"
 
     class Config:
         """Pydantic model configuration."""

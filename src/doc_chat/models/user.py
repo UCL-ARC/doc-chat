@@ -79,7 +79,7 @@ class UserSettings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True)
     pdf_parser: Mapped[str] = mapped_column(String(50), default="tesseract")
-    model_name: Mapped[Optional[str]] = mapped_column(String(100), default="openai/gpt-4o-mini")
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), default="ollama/gemma3:1b")
     api_keys: Mapped[Dict[str, str]] = mapped_column(JSON, default=dict)
     prompts: Mapped[Dict[str, str]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

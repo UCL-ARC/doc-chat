@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -105,42 +106,36 @@ async def get_current_user(
         HTTPException: If user not found or inactive (when auth is enabled).
 
     """
-    # If authentication is disabled, get or create a default user
+    # If authentication is disabled, get or create the default user (testuser)
     if settings.DISABLE_AUTH:
-        default_email = "default@local"
+        default_email = "testuser@local"
         result = await db.execute(select(User).where(User.email == default_email))
         user = result.scalar_one_or_none()
-        
+
         if not user:
-            # Try to get any existing user first
-            any_user_result = await db.execute(select(User).limit(1))
-            any_user = any_user_result.scalar_one_or_none()
-            
-            if any_user:
-                # Use the first existing user
-                logger.info(f"Using existing user {any_user.email} for disabled authentication mode")
-                return any_user
-            
-            # If no users exist, try to create default user
-            # Use a simple password hash workaround if bcrypt has issues
             try:
                 hashed_password = get_password_hash("default")
             except Exception as e:
                 logger.warning(f"Failed to hash password, using placeholder: {e}")
-                # Use a placeholder hash that won't work for login but allows the user to exist
                 hashed_password = "$2b$12$placeholder.hash.for.default.user.disabled.auth"
-            
+
             user = User(
                 email=default_email,
                 hashed_password=hashed_password,
-                full_name="Default User",
+                full_name="testuser",
                 is_active=True,
             )
             db.add(user)
-            await db.commit()
-            await db.refresh(user)
-            logger.info("Created default user for disabled authentication mode")
-        
+            try:
+                await db.commit()
+                await db.refresh(user)
+                logger.info("Created default user 'testuser' for disabled authentication mode")
+            except IntegrityError:
+                # Race: another request created the user already (e.g. concurrent /status, /documents/, /conversations/)
+                await db.rollback()
+                result = await db.execute(select(User).where(User.email == default_email))
+                user = result.scalar_one()
+
         return user
     
     # Normal authentication flow
@@ -208,6 +203,8 @@ async def background_parse_task(document_id: int, user_id: int, file_path: str, 
                 raise ValueError("No text extracted from document")
 
             parsed_text = "\n".join(parsed)
+            # PostgreSQL UTF-8 text cannot contain null bytes (0x00); strip them (e.g. from PDF extraction)
+            parsed_text = parsed_text.replace("\x00", "")
 
             parsed_doc.parsed_text = parsed_text
             parsed_doc.parsing_status = "done"
@@ -438,6 +435,74 @@ async def get_document(
     return document
 
 
+@router.post("/{document_id}/start-parsing")
+async def start_document_parsing(
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """
+    Ensure parsing is started for a document (creates ParsedDocument and queues task if missing).
+
+    Use when a document shows "not_started" (e.g. no ParsedDocument row yet). Idempotent.
+    """
+    result = await db.execute(
+        select(Document).where(
+            Document.id == document_id, Document.user_id == current_user.id
+        )
+    )
+    document = result.scalar_one_or_none()
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+
+    result = await db.execute(
+        select(UserSettings).where(UserSettings.user_id == current_user.id)
+    )
+    user_settings = result.scalar_one_or_none()
+    method = user_settings.pdf_parser if user_settings else "tesseract"
+
+    parsed_result = await db.execute(
+        select(ParsedDocument).where(
+            ParsedDocument.document_id == document_id,
+            ParsedDocument.user_id == current_user.id,
+            ParsedDocument.method == method,
+        )
+    )
+    parsed_doc = parsed_result.scalar_one_or_none()
+
+    if parsed_doc:
+        if parsed_doc.parsing_status in ("pending", "in_progress"):
+            return {"status": "already_running", "parsing_status": parsed_doc.parsing_status}
+        if parsed_doc.parsing_status == "done":
+            return {"status": "done", "parsing_status": "done"}
+        # error: re-queue
+        parsed_doc.parsing_status = "pending"
+        parsed_doc.error_message = None
+        await db.commit()
+    else:
+        parsed_doc = ParsedDocument(
+            document_id=document.id,
+            user_id=current_user.id,
+            method=method,
+            parsing_status="pending",
+        )
+        db.add(parsed_doc)
+        await db.commit()
+        await db.refresh(parsed_doc)
+
+    background_tasks.add_task(
+        background_parse_task,
+        document.id,
+        current_user.id,
+        document.file_path,
+        method,
+    )
+    return {"status": "started", "parsing_status": "pending"}
+
+
 async def wait_for_parsed_document(
     document_id: int, user_id: int, method: str, db: AsyncSession, timeout: int = 30
 ) -> ParsedDocument:
@@ -488,7 +553,7 @@ async def parse_pdf(
         await db.refresh(user_settings)
     # Use settings unless overridden
     method = method or user_settings.pdf_parser
-    model_name = model_name or user_settings.model_name or "gpt-4o"
+    model_name = model_name or user_settings.model_name or "ollama/gemma3:1b"
     # Determine per-user API key for the selected model
     api_key = user_settings.api_keys.get(model_name)
     # Get document
@@ -575,7 +640,7 @@ async def parse_image(
         await db.commit()
         await db.refresh(user_settings)
     method = method or user_settings.pdf_parser
-    model_name = model_name or user_settings.model_name or "gpt-4o"
+    model_name = model_name or user_settings.model_name or "ollama/gemma3:1b"
     # Determine per-user API key for the selected model
     api_key = user_settings.api_keys.get(model_name)
     result = await db.execute(
@@ -664,7 +729,8 @@ async def summarize_documents(
         await db.commit()
         await db.refresh(user_settings)
     method = method or user_settings.pdf_parser
-    model_name = model_name or user_settings.model_name or "gpt-4o"
+    model_name = model_name or user_settings.model_name or "ollama/gemma3:1b"
+    logger.info("LLM summarize: model=%s", model_name)
     llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("summarize", None)
@@ -742,7 +808,8 @@ async def qa_documents(
         await db.commit()
         await db.refresh(user_settings)
     method = method or user_settings.pdf_parser
-    model_name = model_name or user_settings.model_name or "gpt-4o"
+    model_name = model_name or user_settings.model_name or "ollama/gemma3:1b"
+    logger.info("LLM qa: model=%s", model_name)
     llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("qa", None)
@@ -965,7 +1032,8 @@ async def summarize_documents_stream(
     )
     user_settings = await get_or_create_user_settings(db, current_user.id)
     method = method or user_settings.pdf_parser
-    model_name = model_name or user_settings.model_name or "gpt-4o"
+    model_name = model_name or user_settings.model_name or "ollama/gemma3:1b"
+    logger.info("LLM summarize/stream: model=%s", model_name)
     llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("summarize", None)
@@ -1024,7 +1092,8 @@ async def llm_qa_stream(
     )
     user_settings = await get_or_create_user_settings(db, current_user.id)
     method = method or user_settings.pdf_parser
-    model_name = model_name or user_settings.model_name or "gpt-4o"
+    model_name = model_name or user_settings.model_name or "ollama/gemma3:1b"
+    logger.info("LLM qa/stream: model=%s", model_name)
     llm_params = await _prepare_llm_call(model_name)
     api_key = user_settings.api_keys.get(model_name)
     prompt = user_settings.prompts.get("qa", None)

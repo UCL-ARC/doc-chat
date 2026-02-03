@@ -27,12 +27,12 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/doc_chat
       - OLLAMA_API_BASE_URL=http://ollama:11434
       - RAG_ENABLED=true
-      - RAG_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - RAG_EMBEDDING_MODEL=ollama/nomic-embed-text
       - RAG_CHUNK_SIZE=512
       - RAG_CHUNK_OVERLAP=50
       - RAG_TOP_K=5
       - FAISS_INDEX_PATH=/app/data/faiss_index
-      - DISABLE_AUTH=${DISABLE_AUTH:-false}
+      - DISABLE_AUTH=${DISABLE_AUTH:-true}
     volumes:
       - ./uploads:/app/uploads
       - ./data:/app/data

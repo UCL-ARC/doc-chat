@@ -1,11 +1,23 @@
 """Main application module."""
-import logging
+# Prevent LiteLLM from fetching model_prices_and_context_window.json (set before litellm is ever imported)
 import os
+os.environ.setdefault("LITELLM_MODEL_COST_MAP_URL", "")
+
+import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Ensure application loggers (e.g. doc_chat.routers.documents) emit INFO to the terminal
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+if not _root.handlers:
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+    _root.addHandler(_h)
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 

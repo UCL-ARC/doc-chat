@@ -19,19 +19,11 @@ import {
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-const PDF_PARSERS = [
-  { label: "Tesseract OCR", value: "tesseract" },
-  { label: "Docling", value: "docling" },
-];
-
-const LLM_PROVIDERS = [
-  { label: "Default - No API Key Required (gpt-4o-mini)", value: "openai/gpt-4o-mini" },
-  { label: "GPT-4.1-mini (Add your own key)", value: "openai/gpt-4.1-mini" },
-  { label: "Gemini-2.0-flash-lite (Add your own key)", value: "google/gemini-2.0-flash-lite" },
-  { label: "phi4-mini:3.8b", value: "ollama/phi4-mini:3.8b" },
-  { label: "llama3.2:1b", value: "ollama/llama3.2:1b" },
-  { label: "gemma3:1b", value: "ollama/gemma3:1b" },
-];
+/** Single OpenAI model option; always requires user API key. */
+const OPENAI_MODEL = {
+  value: "openai/gpt-5-nano-2025-08-07",
+  label: "gpt-5-nano-2025-08-07 (OpenAI - API key required)",
+};
 
 const DEFAULT_PROMPTS = {
   summarize: "Summarize the following text for efficacy and clarity.",
@@ -40,12 +32,19 @@ const DEFAULT_PROMPTS = {
 
 const API_URL = (window as any).APP_CONFIG?.API_URL || 'http://localhost:8001';
 
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 const Settings: React.FC = () => {
   const [pdfParser, setPdfParser] = useState<string>("tesseract");
-  const [selectedModel, setSelectedModel] = useState<string>("openai/gpt-4o-mini");
+  const [selectedModel, setSelectedModel] = useState<string>("ollama/gemma3:1b");
+  const [llmModelOptions, setLlmModelOptions] = useState<{ label: string; value: string }[]>([]);
+  const [ensureDefaultLoading, setEnsureDefaultLoading] = useState<boolean>(true);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({
     openai: "",
-    google: ""
+    google: "",
   });
   const [prompts, setPrompts] = useState<{ summarize: string; qa: string }>(
     DEFAULT_PROMPTS,
@@ -56,26 +55,58 @@ const Settings: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      setLoading(true);
+    const load = async () => {
       setError("");
+      setEnsureDefaultLoading(true);
       try {
-        const response = await axios.get(`${API_URL}/auth/settings`);
-        const data = response.data;
+        await axios.get(`${API_URL}/auth/ollama/ensure-default`, {
+          headers: getAuthHeaders(),
+          timeout: 300_000,
+        });
+      } catch (err: any) {
+        setError("Failed to prepare default model.");
+      } finally {
+        setEnsureDefaultLoading(false);
+      }
+
+      setLoading(true);
+      try {
+        const [modelsRes, settingsRes] = await Promise.all([
+          axios.get<{ models: string[] }>(`${API_URL}/auth/ollama/models`, {
+            headers: getAuthHeaders(),
+          }),
+          axios.get(`${API_URL}/auth/settings`, { headers: getAuthHeaders() }),
+        ]);
+        const data = settingsRes.data;
         setPdfParser(data.pdf_parser || "tesseract");
-        setSelectedModel(data.model_name || "openai/gpt-4o-mini");
+        setSelectedModel(data.model_name || "ollama/gemma3:1b");
         setApiKeys(data.api_keys || {});
         setPrompts({
           summarize: data.prompts?.summarize || DEFAULT_PROMPTS.summarize,
           qa: data.prompts?.qa || DEFAULT_PROMPTS.qa,
         });
+        const ollamaOptions = (modelsRes.data.models || []).map((m) => ({
+          value: m,
+          label: m.replace(/^ollama\//, ""),
+        }));
+        const savedModel = data.model_name || "ollama/gemma3:1b";
+        const allOptions = [OPENAI_MODEL, ...ollamaOptions];
+        const hasSaved = allOptions.some((o) => o.value === savedModel);
+        if (!hasSaved && savedModel.startsWith("ollama/")) {
+          allOptions.push({
+            value: savedModel,
+            label: savedModel.replace(/^ollama\//, ""),
+          });
+        }
+        setLlmModelOptions(allOptions);
       } catch (err: any) {
         setError("Failed to load settings.");
+        setLlmModelOptions([OPENAI_MODEL]);
       } finally {
         setLoading(false);
       }
     };
-    fetchSettings();
+    load();
   }, []);
 
   const handleApiKeyChange = (provider: string, value: string) => {
@@ -104,9 +135,7 @@ const Settings: React.FC = () => {
     }
   };
 
-  const showApiKeyInput =
-    !selectedModel.startsWith("ollama/") &&
-    selectedModel !== "openai/gpt-4o-mini";
+  const showApiKeyInput = selectedModel === OPENAI_MODEL.value;
 
   return (
     <Container maxWidth="sm">
@@ -118,7 +147,14 @@ const Settings: React.FC = () => {
         <Typography variant="h4" gutterBottom>
           Settings
         </Typography>
-        {loading && <CircularProgress sx={{ mb: 2 }} />}
+        {(ensureDefaultLoading || loading) && (
+          <CircularProgress sx={{ mb: 2 }} />
+        )}
+        {ensureDefaultLoading && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Downloading default model (one time only)…
+          </Typography>
+        )}
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
@@ -126,28 +162,7 @@ const Settings: React.FC = () => {
         )}
         <Paper sx={{ p: 3, mb: 3 }}>
           <Typography variant="h6" gutterBottom>
-            PDF Parsing Library
-          </Typography>
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel id="pdf-parser-label">PDF Parser</InputLabel>
-            <Select
-              labelId="pdf-parser-label"
-              value={pdfParser}
-              label="PDF Parser"
-              onChange={(e) => setPdfParser(e.target.value)}
-              disabled={loading}
-            >
-              {PDF_PARSERS.map((opt) => (
-                <MenuItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Paper>
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            LLM Model Provider
+            LLM Model
           </Typography>
           <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel id="llm-model-label">LLM Model</InputLabel>
@@ -156,9 +171,9 @@ const Settings: React.FC = () => {
               value={selectedModel}
               label="LLM Model"
               onChange={(e) => setSelectedModel(e.target.value)}
-              disabled={loading}
+              disabled={loading || ensureDefaultLoading}
             >
-              {LLM_PROVIDERS.map((opt) => (
+              {llmModelOptions.map((opt) => (
                 <MenuItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </MenuItem>

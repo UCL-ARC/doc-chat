@@ -40,6 +40,20 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
 };
 
+const LoginOrRedirect: React.FC = () => {
+  const { isAuthenticated, authDisabled, isLoading } = useAuth();
+  if (isLoading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</Box>;
+  if (authDisabled || isAuthenticated) return <Navigate to="/" replace />;
+  return <Login />;
+};
+
+const SignupOrRedirect: React.FC = () => {
+  const { isAuthenticated, authDisabled, isLoading } = useAuth();
+  if (isLoading) return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</Box>;
+  if (authDisabled || isAuthenticated) return <Navigate to="/" replace />;
+  return <Signup />;
+};
+
 const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
@@ -47,8 +61,8 @@ const App: React.FC = () => {
       <AuthProvider>
         <Router>
           <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
+            <Route path="/login" element={<LoginOrRedirect />} />
+            <Route path="/signup" element={<SignupOrRedirect />} />
             <Route
               path="/"
               element={

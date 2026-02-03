@@ -12,10 +12,6 @@ import {
   IconButton,
   Paper,
   Alert,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   TextField,
   CircularProgress,
   Checkbox,
@@ -25,7 +21,6 @@ import {
 import {
   Delete as DeleteIcon,
   Description as DescriptionIcon,
-  Settings as SettingsIcon,
   CheckCircle,
   HourglassEmpty,
   Error as ErrorIcon,
@@ -73,7 +68,7 @@ interface Conversation {
   };
 }
 
-const API_URL = (window as any).APP_CONFIG?.API_URL || 'http://localhost:8001';
+const API_URL = (window as any).APP_CONFIG?.API_URL || window.location.origin;
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -88,8 +83,10 @@ const Dashboard: React.FC = () => {
   const [question, setQuestion] = useState("");
   const [statuses, setStatuses] = useState<DocumentStatus[]>([]);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const startParseRequestedRef = useRef<Set<number>>(new Set());
   const [lastUploadTime, setLastUploadTime] = useState<number | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedLlmModel, setSelectedLlmModel] = useState<string>("");
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -106,6 +103,7 @@ const Dashboard: React.FC = () => {
         headers: getAuthHeaders(),
       });
       setDocuments(response.data);
+      setError("");
     } catch (err) {
       setError("Failed to fetch documents");
     }
@@ -133,11 +131,40 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
+  const fetchSettings = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/settings`, {
+        headers: getAuthHeaders(),
+      });
+      setSelectedLlmModel(response.data.model_name || "ollama/gemma3:1b");
+    } catch (err) {
+      // use default if fetch fails
+      setSelectedLlmModel("ollama/gemma3:1b");
+    }
+  }, []);
+
   useEffect(() => {
     fetchDocuments();
     fetchStatuses();
     fetchConversations();
-  }, [fetchDocuments, fetchStatuses, fetchConversations]);
+    fetchSettings();
+  }, [fetchDocuments, fetchStatuses, fetchConversations, fetchSettings]);
+
+  // Start parsing for any document that shows "not_started" (e.g. no ParsedDocument row yet)
+  useEffect(() => {
+    const notStarted = documents.filter((doc) => doc.parsing_status === "not_started");
+    if (notStarted.length === 0) return;
+    const headers = getAuthHeaders();
+    notStarted.forEach((doc) => {
+      if (startParseRequestedRef.current.has(doc.id)) return;
+      startParseRequestedRef.current.add(doc.id);
+      axios
+        .post(`${API_URL}/documents/${doc.id}/start-parsing`, {}, { headers })
+        .catch(() => {
+          startParseRequestedRef.current.delete(doc.id);
+        });
+    });
+  }, [documents]);
 
   useEffect(() => {
     const shouldPoll = documents.some(
@@ -151,6 +178,7 @@ const Dashboard: React.FC = () => {
     if (shouldPoll && !pollingRef.current) {
       pollingRef.current = setInterval(() => {
         fetchDocuments();
+        fetchStatuses();
       }, 3000);
       // Set a timeout to stop polling after 2 minutes from last upload
       if (lastUploadTime) {
@@ -178,7 +206,7 @@ const Dashboard: React.FC = () => {
         clearTimeout(stopTimeout);
       }
     };
-  }, [documents, fetchDocuments, lastUploadTime]);
+  }, [documents, fetchDocuments, fetchStatuses, lastUploadTime]);
 
   function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem("token");
@@ -399,17 +427,25 @@ const Dashboard: React.FC = () => {
             mb: 4,
           }}
         >
-          <Typography variant="h4" component="h1">
-            DocChat
-          </Typography>
           <Box>
-            <IconButton
+            <Typography variant="h4" component="h1">
+              DocChat
+            </Typography>
+            {selectedLlmModel && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                LLM: {selectedLlmModel}
+              </Typography>
+            )}
+          </Box>
+          <Box>
+            <Button
+              variant="outlined"
               color="primary"
               onClick={() => navigate("/settings")}
               sx={{ mr: 1 }}
             >
-              <SettingsIcon />
-            </IconButton>
+              Settings
+            </Button>
             <Button variant="outlined" color="primary" onClick={handleLogout}>
               Logout
             </Button>
@@ -491,7 +527,8 @@ const Dashboard: React.FC = () => {
         <List>
           {documents.map((doc) => {
             const statusObj = statuses.find((s) => s.document_id === doc.id);
-            const status = statusObj?.parsing_status || "not_started";
+            // Prefer doc.parsing_status (from list, updated by polling); fallback to statuses
+            const status = doc.parsing_status || statusObj?.parsing_status || "not_started";
             const { icon, label } = getStatusInfo(status);
             return (
               <ListItem

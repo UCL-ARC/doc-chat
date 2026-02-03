@@ -61,7 +61,10 @@ class Settings(BaseSettings):
 
     # RAG Configuration
     RAG_ENABLED: bool = os.getenv("RAG_ENABLED", "false").lower() == "true"
-    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    # Use Ollama by default to avoid Hugging Face token; use "sentence-transformers/..." for HF models
+    RAG_EMBEDDING_MODEL: str = os.getenv(
+        "RAG_EMBEDDING_MODEL", "ollama/nomic-embed-text"
+    )
     RAG_CHUNK_SIZE: int = int(os.getenv("RAG_CHUNK_SIZE", "512"))
     RAG_CHUNK_OVERLAP: int = int(os.getenv("RAG_CHUNK_OVERLAP", "50"))
     RAG_TOP_K: int = int(os.getenv("RAG_TOP_K", "5"))
@@ -69,8 +72,8 @@ class Settings(BaseSettings):
 
     LITELLM_LOG_LEVEL: str = os.getenv("LITELLM_LOG_LEVEL", "ERROR")
 
-    # Authentication Configuration
-    DISABLE_AUTH: bool = os.getenv("DISABLE_AUTH", "false").lower() == "true"
+    # Authentication Configuration (default: disabled for easier local/dev use)
+    DISABLE_AUTH: bool = os.getenv("DISABLE_AUTH", "true").lower() == "true"
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="allow"

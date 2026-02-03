@@ -70,3 +70,20 @@ async def ensure_model_is_available(model_name: str) -> None:
     local_models = await list_local_models()
     if model_name not in local_models:
         await pull_model(model_name)
+
+
+DEFAULT_OLLAMA_MODEL = "gemma3:1b"
+
+
+async def ensure_default_model() -> dict[str, bool]:
+    """
+    Ensure the default Ollama model (gemma3:1b) is available; pull if not.
+
+    Returns:
+        dict with "pulled": True if the model was pulled, False if already present.
+    """
+    local_models = await list_local_models()
+    if DEFAULT_OLLAMA_MODEL in local_models:
+        return {"pulled": False}
+    await pull_model(DEFAULT_OLLAMA_MODEL)
+    return {"pulled": True}

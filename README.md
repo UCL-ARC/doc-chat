@@ -13,7 +13,7 @@ A web application for Question Answering over local documents using local Large 
 
 - Python 3.9+
 - PostgreSQL
-- Node.js 16+ (for frontend)
+- Node.js 16+ and npm (for frontend). Install from [nodejs.org](https://nodejs.org/) or via your package manager (e.g. `brew install node` on macOS).
 - uv (Python package manager). Install: `curl -LsSf https://astral.sh/uv/install.sh | sh` (see [uv docs](https://docs.astral.sh/uv/) for other options)
 - Ollama
 

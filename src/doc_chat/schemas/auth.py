@@ -87,7 +87,7 @@ class UserSettingsBase(BaseModel):
     """
 
     pdf_parser: str = Field(default="tesseract")
-    model_name: str = Field(default="gpt-4o")
+    model_name: str = Field(default="ollama/gemma3:1b")
     api_keys: dict[str, str] = Field(default_factory=dict)
     prompts: dict[str, str] = Field(default_factory=dict)
 
