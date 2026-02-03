@@ -22,6 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .database import Base, engine
+# Import all models so they are registered with Base.metadata before create_all
+from .models import conversation, document, user  # noqa: F401
 from .routers import auth, conversations, documents
 from .services.rag_service import rag_service
 from dotenv import load_dotenv
@@ -36,7 +38,16 @@ async def lifespan(app: FastAPI):
     """Manage application lifespan events."""
     # Startup
     logger.info("Starting up application...")
-    
+
+    # Create database tables (users, documents, conversations, etc.)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables created or already exist")
+    except Exception as e:
+        logger.exception("Failed to create database tables: %s", e)
+        raise
+
     # Initialize RAG service
     rag_initialized = await rag_service.initialize()
     if rag_initialized:
@@ -82,13 +93,6 @@ app.include_router(conversations.router)
 # Mount static files last
 frontend_build_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/", StaticFiles(directory=frontend_build_dir, html=True), name="static")
-
-
-@app.on_event("startup")
-async def startup():
-    """Create database tables on startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
 
 
