@@ -1,32 +1,23 @@
 # Document Analysis Web Application
 
-A web application for document analysis. Users can upload PDFs and images, get summaries and ask questions from their documents.
+A web application for Question Answering over local documents using local Large Language Models (option to use GPT5.2-nano with own API key). Users can upload PDFs and images, get summaries and ask questions from their documents.
 
 ## Features
 
-- User authentication (signup/login)
 - File upload support for PDFs and images
 - Document summarization
 - Question answering based on documents
-- Secure password storage
 - PostgreSQL database integration
-
-## Tech Stack
-
-- Backend: FastAPI (Python)
-- Frontend: React (TypeScript)
-- Database: PostgreSQL
-- Authentication: JWT
-- File Storage: Local filesystem (configurable)
 
 ## Prerequisites
 
 - Python 3.9+
 - PostgreSQL
 - Node.js 16+ (for frontend)
-- uv (Python package manager)
-- Docker
-- Docker Compose
+- uv (Python package manager). Install: `curl -LsSf https://astral.sh/uv/install.sh | sh` (see [uv docs](https://docs.astral.sh/uv/) for other options)
+- Ollama
+
+To run with Docker instead of local setup, see the [Docker guide](docs/docker.md).
 
 ## Setup
 
@@ -54,26 +45,16 @@ uv pip install -r requirements.txt
 
 ```env
 DATABASE_URL=postgresql+asyncpg://user:password@localhost/dbname
-SECRET_KEY=your-secret-key-here
-OPENAI_API_KEY=your-openai-api-key-here
-GOOGLE_API_KEY=your-google-api-key-here
-
-# Optional: Disable authentication (for development/testing only)
-# When set to "true", all endpoints will be accessible without login
-# A default user will be automatically created and used for all requests
-DISABLE_AUTH=false
+RAG_ENABLED=false
+DISABLE_AUTH=true
 ```
 
-5. Ensure your PostgreSQL database is running and accessible.
+5. **Database:** Ensure PostgreSQL is installed and running. Create a database and user for the app, then set `DATABASE_URL` in `.env` to match (e.g. `postgresql+asyncpg://user:password@localhost/dbname`).  
+   - **macOS (Homebrew):** `brew install postgresql@16` then `brew services start postgresql@16`. Create DB: `createdb doc_chat` (uses your OS user; use `postgresql+asyncpg://$USER@localhost/doc_chat` if no password).  
+   - **Linux:** Install the `postgresql` package for your distro, start the service, then create a DB/user as above.  
 
-6. **First Run:**
-   The database tables will be created automatically on app startup.
 
-7. Run the development server:
-
-   The recommended way to run this application is with Docker Compose (see below).
-
-The API will be available at `http://localhost:8001`
+6. **First run:** Database tables are created automatically on app startup.
 
 ## Local Development with Ollama
 
@@ -97,35 +78,37 @@ For local development, if you want to use local LLMs via Ollama, you'll need to 
    ```
    This will start Ollama on `http://localhost:11434` (the default port the application expects).
 
-2. Pull a model (optional - models are auto-downloaded when first used):
+2. Pull models (optional - models are auto-downloaded when first used):
    ```bash
-   ollama pull llama3.2:1b
-   # or
-   ollama pull gemma2:2b
+   ollama pull gemma3:1b
    ```
 
 ### Configuration
 
-When running locally, the application will automatically connect to Ollama at `http://localhost:11434`. In Docker, it connects to `http://ollama:11434` within the container network.
+When running locally, the application will automatically connect to Ollama at `http://localhost:11434`. When using [Docker](docs/docker.md), it connects to `http://ollama:11434` within the container network.
 
 If you need to use a different Ollama URL, set the environment variable:
 ```env
 OLLAMA_API_BASE_URL=http://your-ollama-host:11434
 ```
 
-### Authentication Configuration
+## Running the Application
 
-By default, the application requires user authentication (signup/login) to access protected endpoints. For development or testing purposes, you can disable authentication:
+### Using the startup script
 
-```env
-DISABLE_AUTH=true
+From the project root (with your virtual environment activated and `.env` configured):
+
+```bash
+./startup.sh
 ```
 
-**Important Notes:**
-- When `DISABLE_AUTH=true`, all API endpoints become accessible without authentication
-- A default user (`default@local`) is automatically created and used for all requests
-- This should **only** be used in development/testing environments, never in production
-- The frontend login/signup pages will still be visible, but API calls will work without tokens
+This builds the frontend, copies it into the backend static folder, and starts the API. Default port is 8001; set `PORT` to override.
+
+### Using Docker
+
+For containerized deployment, see **[Docker guide](docs/docker.md)**.
+
+The API will be available at `http://localhost:8001`.
 
 ## API Documentation
 
@@ -160,150 +143,3 @@ ruff format .
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-# Running with Docker
-
-This application can be run using Docker and docker-compose, which makes it easy to set up and run on any machine.
-
-## Setup
-
-1. Copy the example environment file:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Edit `.env` and add your API keys:
-   - `OPENAI_API_KEY`: Your OpenAI API key
-   - `GOOGLE_API_KEY`: Your Google API key (for Gemini)
-
-## Running the Application
-
-### For Standard Users (including M-series Macs)
-
-Build and start all services using the standard compose file:
-```bash
-docker-compose up --build
-```
-
-### For Users with NVIDIA GPUs
-
-To enable GPU acceleration for Ollama, include the `docker-compose.gpu.yml` override file. This will merge the base configuration with the GPU-specific settings.
-
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
-```
-
-## Accessing the Application
-
-Once the containers are running, you can access the different parts of the application:
-- **Frontend & Backend API:** [`http://localhost:8001`](http://localhost:8001)
-- **Database (if direct access is needed):** `localhost:5432`
-- **Ollama API (for local models):** [`http://localhost:11434`](http://localhost:11434)
-
-## Stopping the Application
-
-To stop all services:
-
-```bash
-docker-compose down
-```
-
-To stop and remove all data (including database):
-
-```bash
-docker-compose down -v
-```
-
-## Development
-
-- The `uploads` directory is mounted as a volume, so uploaded files persist between container restarts
-- The `ollama_data` volume stores downloaded LLMs so they are not re-downloaded on every start.
-- Database data is persisted in a Docker volume named `postgres_data`
-- Environment variables can be configured in the `.env` file
-
-## Troubleshooting
-
-1. If the frontend can't connect to the backend:
-
-   - Check that all containers are running: `docker-compose ps`
-   - Check backend logs: `docker-compose logs backend`
-   - Ensure the nginx configuration is correct
-
-2. If the backend can't connect to the database:
-
-   - Check database logs: `docker-compose logs db`
-   - Ensure database credentials in `.env` match the ones in `docker-compose.yml`
-
-3. For permission issues with uploads:
-   - Ensure the `uploads` directory exists and has correct permissions
-   - Try: `mkdir -p uploads && chmod 777 uploads`
-
-## RAG (Retrieval-Augmented Generation)
-
-This application includes optional RAG functionality using FAISS for improved document Q&A. RAG enhances responses by finding the most relevant document chunks for each question, rather than using entire documents as context.
-
-### Benefits of RAG
-
-- **Better relevance**: Only the most relevant document sections are used as context
-- **Improved accuracy**: Reduces noise from irrelevant document content
-- **Faster responses**: Smaller context windows lead to faster LLM processing
-- **Better handling of large documents**: Can work with documents that exceed LLM context limits
-
-### Configuration
-
-RAG is disabled by default. To enable it, set the following environment variables:
-
-```bash
-# Enable RAG
-RAG_ENABLED=true
-
-# Embedding model (default: sentence-transformers/all-MiniLM-L6-v2)
-RAG_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-
-# Text chunking settings
-RAG_CHUNK_SIZE=512
-RAG_CHUNK_OVERLAP=50
-
-# Number of similar chunks to retrieve for each query
-RAG_TOP_K=5
-
-# Path to store FAISS index
-FAISS_INDEX_PATH=./data/faiss_index
-```
-
-### Docker Configuration
-
-RAG is pre-configured in `docker-compose.yml`. The service will automatically:
-
-1. Download the embedding model on first startup
-2. Create text chunks from uploaded documents
-3. Build and maintain a FAISS vector index
-4. Use semantic search for Q&A queries
-
-### Testing RAG
-
-Run the test script to verify RAG functionality:
-
-```bash
-python test_rag.py
-```
-
-### RAG Status Endpoint
-
-Check RAG service status via the API:
-
-```bash
-curl http://localhost:8001/documents/rag/status
-```
-
-Response includes:
-- Whether RAG is enabled
-- Initialization status
-- Number of indexed chunks
-- Number of unique documents
-- Embedding model in use
-
-### Disabling RAG
-
-To disable RAG, set `RAG_ENABLED=false` or remove the environment variable. The application will fall back to using complete document text for Q&A, which is the original behavior.
