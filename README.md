@@ -69,20 +69,24 @@ DISABLE_AUTH=true
    - **macOS (Homebrew):** `brew install postgresql@16` then `brew services start postgresql@16`
    - **Linux:** Install the `postgresql` (and optionally `postgresql-client`) package for your distro and start the service
 
-   **Option A – Simple (OS user, no password)**  
-   Create a database owned by your current OS user (good for local dev):
-   ```bash
-   createdb doc_chat
-   ```
-   In `.env` use: `DATABASE_URL=postgresql+asyncpg://YOUR_OS_USERNAME@localhost/doc_chat` (no password; replace `YOUR_OS_USERNAME` with your username, or `$USER` on macOS/Linux).
-
-   **Option B – Dedicated user and password**  
-   Create a role and database (e.g. for a shared or production-like setup):
-   ```bash
-   psql -U postgres -c "CREATE USER doc_chat_user WITH PASSWORD 'your_password';"
-   psql -U postgres -c "CREATE DATABASE doc_chat OWNER doc_chat_user;"
-   ```
-   In `.env` use: `DATABASE_URL=postgresql+asyncpg://doc_chat_user:your_password@localhost/doc_chat`
+   **Option A – Simple (OS user)**  
+   Create a database owned by your current OS user (good for local dev).
+   - **Linux:** The PostgreSQL role matching your OS user (e.g. `ubuntu`) often does not exist. Create it first, then the database:
+     ```bash
+     sudo -u postgres createuser -s $USER
+     createdb doc_chat
+     ```
+     The app connects over TCP and requires a password. Set one for your user, then use it in `.env`:
+     ```bash
+     sudo -u postgres psql -c "ALTER USER $USER WITH PASSWORD 'dev';"
+     ```
+     In `.env` use your **actual username** (e.g. `ubuntu`). The `.env` file is not processed by the shell, so `$USER` will not expand—write the name explicitly:
+     `DATABASE_URL=postgresql+asyncpg://ubuntu:dev@localhost/doc_chat`
+   - **macOS (Homebrew):** Usually your OS user already exists as a role. Run:
+     ```bash
+     createdb doc_chat
+     ```
+     In `.env` use: `DATABASE_URL=postgresql+asyncpg://YOUR_OS_USERNAME@localhost/doc_chat` (no password; replace `YOUR_OS_USERNAME` with your username).
 
 7. **First run:** Start the app (see *Running the Application*). Database **tables** are created automatically on first startup; the database and user must already exist (step 6).
 
