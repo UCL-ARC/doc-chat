@@ -28,20 +28,34 @@ git clone <repository-url>
 cd doc-chat
 ```
 
-2. Create and activate a virtual environment:
+2. **Install uv and Node.js** (if not already installed):
+
+   **uv (Python package manager):**
+   - **macOS/Linux:** `curl -LsSf https://astral.sh/uv/install.sh | sh` then restart your shell or `source $HOME/.local/bin/env` (or add it to your PATH).
+   - **Windows (PowerShell):** `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.
+   - Other options (pip, Homebrew, etc.): [uv docs](https://docs.astral.sh/uv/getting-started/installation/).
+
+   **Node.js and npm (for frontend):**
+   - **macOS:** `brew install node` or install from [nodejs.org](https://nodejs.org/).
+   - **Linux:** Use your distro’s package manager (e.g. `sudo apt install nodejs npm` on Debian/Ubuntu) or [nodejs.org](https://nodejs.org/).
+   - **Windows:** Download the LTS installer from [nodejs.org](https://nodejs.org/).
+
+   Check versions: `uv --version` and `node --version` (Node 16+).
+
+3. Create and activate a virtual environment:
 
 ```bash
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-3. Install dependencies:
+4. Install dependencies:
 
 ```bash
 uv pip install -r requirements.txt
 ```
 
-4. Create a `.env` file in the root directory:
+5. Create a `.env` file in the root directory:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://user:password@localhost/dbname
@@ -49,12 +63,28 @@ RAG_ENABLED=false
 DISABLE_AUTH=true
 ```
 
-5. **Database:** Ensure PostgreSQL is installed and running. Create a database and user for the app, then set `DATABASE_URL` in `.env` to match (e.g. `postgresql+asyncpg://user:password@localhost/dbname`).  
-   - **macOS (Homebrew):** `brew install postgresql@16` then `brew services start postgresql@16`. Create DB: `createdb doc_chat` (uses your OS user; use `postgresql+asyncpg://$USER@localhost/doc_chat` if no password).  
-   - **Linux:** Install the `postgresql` package for your distro, start the service, then create a DB/user as above.  
+6. **Database:** Ensure PostgreSQL is installed and running, then create a database (and optionally a user/password) for the app. The app creates **tables** on first run; it does **not** create the database or user.
 
+   **Install & start PostgreSQL**
+   - **macOS (Homebrew):** `brew install postgresql@16` then `brew services start postgresql@16`
+   - **Linux:** Install the `postgresql` (and optionally `postgresql-client`) package for your distro and start the service
 
-6. **First run:** Database tables are created automatically on app startup.
+   **Option A – Simple (OS user, no password)**  
+   Create a database owned by your current OS user (good for local dev):
+   ```bash
+   createdb doc_chat
+   ```
+   In `.env` use: `DATABASE_URL=postgresql+asyncpg://YOUR_OS_USERNAME@localhost/doc_chat` (no password; replace `YOUR_OS_USERNAME` with your username, or `$USER` on macOS/Linux).
+
+   **Option B – Dedicated user and password**  
+   Create a role and database (e.g. for a shared or production-like setup):
+   ```bash
+   psql -U postgres -c "CREATE USER doc_chat_user WITH PASSWORD 'your_password';"
+   psql -U postgres -c "CREATE DATABASE doc_chat OWNER doc_chat_user;"
+   ```
+   In `.env` use: `DATABASE_URL=postgresql+asyncpg://doc_chat_user:your_password@localhost/doc_chat`
+
+7. **First run:** Start the app (see *Running the Application*). Database **tables** are created automatically on first startup; the database and user must already exist (step 6).
 
 ## Local Development with Ollama
 
