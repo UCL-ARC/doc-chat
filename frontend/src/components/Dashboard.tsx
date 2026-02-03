@@ -80,6 +80,7 @@ const Dashboard: React.FC = () => {
   const [llmResult, setLlmResult] = useState<string>("");
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmError, setLlmError] = useState("");
+  const [llmResponseTimeSeconds, setLlmResponseTimeSeconds] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
   const [statuses, setStatuses] = useState<DocumentStatus[]>([]);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -264,6 +265,7 @@ const Dashboard: React.FC = () => {
   const handleSummarize = async () => {
     setLlmResult("");
     setLlmError("");
+    setLlmResponseTimeSeconds(null);
     setLlmLoading(true);
     try {
       const headers: Record<string, string> = {
@@ -302,8 +304,13 @@ const Dashboard: React.FC = () => {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              accumulatedText += data.text;
-              setLlmResult(accumulatedText);
+              if (typeof data.text === "string") {
+                accumulatedText += data.text;
+                setLlmResult(accumulatedText);
+              }
+              if (typeof data.response_time_seconds === "number") {
+                setLlmResponseTimeSeconds(data.response_time_seconds);
+              }
             } catch (e) {
               console.error("Failed to parse SSE data:", e);
             }
@@ -322,6 +329,7 @@ const Dashboard: React.FC = () => {
   const handleQA = async () => {
     setLlmResult("");
     setLlmError("");
+    setLlmResponseTimeSeconds(null);
     setLlmLoading(true);
     try {
       const headers: Record<string, string> = {
@@ -361,8 +369,13 @@ const Dashboard: React.FC = () => {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              accumulatedText += data.text;
-              setLlmResult(accumulatedText);
+              if (typeof data.text === "string") {
+                accumulatedText += data.text;
+                setLlmResult(accumulatedText);
+              }
+              if (typeof data.response_time_seconds === "number") {
+                setLlmResponseTimeSeconds(data.response_time_seconds);
+              }
             } catch (e) {
               console.error("Failed to parse SSE data:", e);
             }
@@ -603,6 +616,11 @@ const Dashboard: React.FC = () => {
             <Typography variant="body1" sx={{ whiteSpace: "pre-line" }}>
               {llmResult}
             </Typography>
+            {llmResponseTimeSeconds != null && (
+              <Typography variant="caption" display="block" sx={{ mt: 1, color: "text.secondary" }}>
+                Response time: {llmResponseTimeSeconds} s
+              </Typography>
+            )}
           </Paper>
         )}
 

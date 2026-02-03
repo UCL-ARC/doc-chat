@@ -2,10 +2,11 @@
 
 import asyncio
 import json
+import logging
 import os
+import time
 from typing import Any
 from uuid import uuid4
-import logging
 
 from fastapi import (
     APIRouter,
@@ -1051,13 +1052,15 @@ async def summarize_documents_stream(
     )
     async def stream_response():
         accumulated_text = ""
+        start_time = time.perf_counter()
         async for chunk in summarize_text_with_llm_stream(
             full_text, model_name=model_name, api_key=api_key, **llm_params
         ):
             if chunk:
                 accumulated_text += chunk
                 yield f"data: {{\"text\": {json.dumps(chunk)}, \"conversation_id\": {conversation.id}}}\n\n"
-        
+        response_time_seconds = round(time.perf_counter() - start_time, 2)
+        yield f"data: {{\"response_time_seconds\": {response_time_seconds}}}\n\n"
         # Add the assistant's summary to the conversation history
         assistant_message = Message(
             conversation_id=conversation.id,
@@ -1144,12 +1147,15 @@ async def llm_qa_stream(
 
     async def stream_response():
         accumulated_text = ""
+        start_time = time.perf_counter()
         async for chunk in answer_question_with_llm_stream(
             context_text, request.question, model_name=model_name, api_key=api_key, **llm_params
         ):
             if chunk:
                 accumulated_text += chunk
                 yield f"data: {{\"text\": {json.dumps(chunk)}, \"conversation_id\": {conversation.id}}}\n\n"
+        response_time_seconds = round(time.perf_counter() - start_time, 2)
+        yield f"data: {{\"response_time_seconds\": {response_time_seconds}}}\n\n"
         assistant_message = Message(
             conversation_id=conversation.id,
             role=MessageRole.ASSISTANT,
